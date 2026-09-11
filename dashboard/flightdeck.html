@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>FLIGHTDECK - Live Telemetry</title>
+<style>
+:root{--cy:#00eaff;--mg:#ff2d95;--gn:#3dff8e;--am:#ffb300;--rd:#ff3b3b}
+*{box-sizing:border-box;margin:0}
+body{background:#04070c;color:#dff6ff;font-family:"Segoe UI",system-ui,sans-serif;overflow:hidden}
+#bgC{position:fixed;inset:0;z-index:0}
+.scan{position:fixed;inset:0;z-index:40;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px),
+             radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.75));}
+header{position:relative;z-index:5;display:flex;align-items:center;gap:14px;padding:10px 18px;
+  border-bottom:1px solid rgba(0,234,255,.25);background:rgba(4,10,16,.7);backdrop-filter:blur(6px)}
+.brand{font-weight:700;letter-spacing:.18em;color:var(--cy);text-shadow:0 0 12px var(--cy)}
+.brand .sub{font-size:11px;color:#7fa8b8;letter-spacing:.08em;margin-left:8px}
+.live{color:var(--rd);font-weight:700;letter-spacing:.15em;animation:bl 1s steps(2) infinite;text-shadow:0 0 10px var(--rd)}
+@keyframes bl{50%{opacity:.15}}
+#status{font-size:12px;color:#7fa8b8;letter-spacing:.1em}
+header .sp{flex:1}
+button,select{background:transparent;color:var(--cy);border:1px solid var(--cy);padding:7px 14px;
+  font-size:12px;letter-spacing:.12em;cursor:pointer;border-radius:4px;box-shadow:0 0 10px rgba(0,234,255,.25) inset}
+button:hover{background:rgba(0,234,255,.12)}
+#btnRec{color:var(--rd);border-color:var(--rd);box-shadow:0 0 10px rgba(255,59,59,.3) inset}
+#btnRec.on{background:var(--rd);color:#fff;animation:bl .8s steps(2) infinite}
+select{color:#dff6ff}
+main{position:relative;z-index:5;display:grid;gap:14px;padding:14px;height:calc(100vh - 56px);
+  grid-template-columns:1.25fr .85fr 1fr;grid-template-rows:1fr 238px}
+.panel{position:relative;border:1px solid rgba(0,234,255,.22);border-radius:10px;background:rgba(6,14,22,.55);overflow:hidden}
+.panel canvas{width:100%;height:100%;display:block}
+.tag{position:absolute;top:8px;left:12px;font-size:10px;letter-spacing:.25em;color:#6fa0b4}
+.center{display:flex;flex-direction:column;gap:14px}
+.big{flex:0 0 auto;text-align:center;border:1px solid rgba(255,45,149,.3);border-radius:10px;
+  background:rgba(20,4,14,.5);padding:8px}
+.big span{font:700 64px/1 Consolas,monospace;color:var(--mg);text-shadow:0 0 22px var(--mg)}
+.big.warn span{color:var(--rd);text-shadow:0 0 26px var(--rd);animation:bl .5s steps(2) infinite}
+.big small{display:block;font-size:10px;letter-spacing:.3em;color:#b06f96}
+.altbox{flex:1;display:grid;grid-template-columns:70px 1fr;border:1px solid rgba(61,255,142,.3);
+  border-radius:10px;background:rgba(3,16,10,.55);overflow:hidden}
+.altbox canvas{width:100%;height:100%}
+.altread{display:flex;flex-direction:column;align-items:center;justify-content:center}
+.altread span{font:700 52px/1 Consolas,monospace;color:var(--gn);text-shadow:0 0 20px var(--gn)}
+.altread small{font-size:10px;letter-spacing:.3em;color:#6fae8d}
+.strip{grid-column:1/-1;display:grid;grid-template-columns:1fr 300px;gap:14px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{border:1px solid rgba(0,234,255,.2);border-radius:8px;background:rgba(6,14,22,.6);
+  display:flex;flex-direction:column;align-items:center;justify-content:center}
+.tile b{font:700 22px Consolas,monospace;color:var(--cy);text-shadow:0 0 10px var(--cy)}
+.tile small{font-size:9px;letter-spacing:.2em;color:#6fa0b4}
+
+/* --- panel sub-captions: say what the readout actually means --- */
+.tag em{display:block;font-style:normal;text-transform:none;font-size:9px;letter-spacing:.04em;
+  color:#54798c;margin-top:4px;max-width:34ch;line-height:1.5}
+
+/* --- altitude readout gains a noise / rate sub-line --- */
+.altread span{font-size:44px}
+.altread u{display:block;text-decoration:none;font:11px Consolas,monospace;color:#5d9e80;margin-top:6px}
+.tiles{grid-template-columns:repeat(3,1fr)}
+.strip{grid-template-columns:1fr 430px}
+
+/* --- tare + damping controls --- */
+#btnTare{color:var(--gn);border-color:var(--gn);box-shadow:0 0 10px rgba(61,255,142,.25) inset}
+#btnTare:hover{background:rgba(61,255,142,.12)}
+#damp{color:var(--am);border-color:var(--am);box-shadow:0 0 10px rgba(255,179,0,.2) inset}
+
+/* --- info overlay --- */
+#info{position:fixed;inset:0;z-index:60;background:rgba(2,6,10,.94);display:none;overflow:auto;padding:34px 24px}
+#info.on{display:block}
+#info .iw{max-width:1040px;margin:0 auto}
+#info h2{font:700 20px "Segoe UI",system-ui;letter-spacing:.16em;color:var(--cy);text-shadow:0 0 14px var(--cy)}
+#info .lead{font-size:13px;color:#8fb4c4;margin:8px 0 4px;line-height:1.6;max-width:70ch}
+#info .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:13px;margin-top:20px}
+#info .card{border:1px solid rgba(0,234,255,.22);border-radius:8px;padding:14px 16px;background:rgba(6,14,22,.75)}
+#info .card h3{font:700 11px Consolas,monospace;letter-spacing:.22em;color:var(--cy);margin-bottom:9px}
+#info .card p{font-size:12.5px;line-height:1.65;color:#a8c6d4;margin:0 0 9px}
+#info .card p:last-child{margin-bottom:0}
+#info .card.alt{border-color:rgba(61,255,142,.3)} #info .card.alt h3{color:var(--gn)}
+#info .card.att{border-color:rgba(255,45,149,.3)} #info .card.att h3{color:var(--mg)}
+#info code{font-family:Consolas,monospace;color:var(--am);font-size:12px;white-space:nowrap}
+#info .close{margin-top:22px}
+</style>
+</head>
+<body>
+<canvas id="bgC"></canvas>
+<div class="scan"></div>
+
+<header>
+  <div class="brand">&#9700; FLIGHTDECK<span class="sub">ESP32 &middot; MPU6050 &middot; BMP280</span></div>
+  <div class="live">&#9679; LIVE</div>
+  <span id="status">DISCONNECTED</span>
+  <div class="sp"></div>
+  <select id="baud"><option>115200</option><option>921600</option></select>
+  <select id="damp" title="Smoothing applied to attitude and altitude">
+    <option value="0.30">DAMP: LIVE</option>
+    <option value="0.10" selected>DAMP: STEADY</option>
+    <option value="0.035">DAMP: CALM</option>
+  </select>
+  <button id="btnTare" title="Zero the altitude at the board's current height">TARE ALT</button>
+  <button id="btnInfo">INFO</button>
+  <button id="btnSim">SIM</button>
+  <button id="btnRec">&#9679; REC</button>
+  <button id="btnSave">SAVE CSV</button>
+  <button id="btnCon">CONNECT</button>
+</header>
+
+<main>
+  <section class="panel"><canvas id="adiC"></canvas>
+    <div class="tag">ATTITUDE &middot; ARTIFICIAL HORIZON
+      <em>Which way is down, worked out from gravity. Brown&nbsp;= ground, blue&nbsp;= sky. Accelerometer only &mdash; it cannot see yaw.</em>
+    </div>
+  </section>
+
+  <section class="center">
+    <div class="big" id="gBox"><span id="gVal">1.00</span><small>TOTAL G-FORCE &middot; 1.00 AT REST</small></div>
+    <div class="altbox">
+      <canvas id="tapeC"></canvas>
+      <div class="altread">
+        <span id="altVal">0.0</span>
+        <small id="altUnit">ALTITUDE cm &middot; REL</small>
+        <u id="altSub">&sigma; &mdash; &nbsp;&middot;&nbsp; &mdash; cm/s</u>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel"><canvas id="gyrC"></canvas>
+    <div class="tag">ROTATION RATE &deg;/s
+      <em>How fast it is turning right now, all three axes combined. Zero when still &mdash; this is speed of rotation, not angle.</em>
+    </div>
+  </section>
+
+  <section class="strip">
+    <section class="panel"><canvas id="grC"></canvas>
+      <div class="tag">TELEMETRY STREAM &middot; LAST ~21 s
+        <em>Filled green = altitude (auto-scaled). Lines = accelerometer axes, fixed &plusmn;3 g.</em>
+      </div>
+    </section>
+    <div class="tiles">
+      <div class="tile"><b id="tPitch">&mdash;</b><small>PITCH &deg;</small></div>
+      <div class="tile"><b id="tRoll">&mdash;</b><small>ROLL &deg;</small></div>
+      <div class="tile"><b id="tVs">&mdash;</b><small>VERT RATE cm/s</small></div>
+      <div class="tile"><b id="tPress">&mdash;</b><small>PRESSURE Pa</small></div>
+      <div class="tile"><b id="tTemp">&mdash;</b><small>TEMP &deg;C</small></div>
+      <div class="tile"><b id="tRate">&mdash;</b><small>SAMPLES / s</small></div>
+    </div>
+  </section>
+</main>
+
+<div id="info">
+  <div class="iw">
+    <h2>WHAT EVERY READOUT MEANS</h2>
+    <p class="lead">Two sensors feed this page. The MPU6050 measures acceleration and rotation; the BMP280 measures air
+      pressure, which is converted into altitude. Everything below is derived from those two.</p>
+
+    <div class="grid">
+      <div class="card att">
+        <h3>ARTIFICIAL HORIZON</h3>
+        <p>Pitch and roll are computed from which way gravity is pulling: <code>pitch = asin(-ax/|a|)</code>,
+          <code>roll = atan2(ay, az)</code>. The ladder is marked every 10&deg;.</p>
+        <p>Because it works off gravity alone, it is only trustworthy when the board is roughly still. Shake it and
+          the horizon lurches &mdash; that is real acceleration being mistaken for gravity, not a bug.</p>
+        <p>It also cannot show heading. Yaw needs a magnetometer, which this build does not have.</p>
+      </div>
+
+      <div class="card">
+        <h3>TOTAL G-FORCE</h3>
+        <p><code>|a| = &radic;(ax&sup2; + ay&sup2; + az&sup2;)</code> &mdash; the strength of all acceleration combined,
+          gravity included.</p>
+        <p>Sitting on a desk it should read <code>1.00</code>. Freefall reads <code>0</code>. The box turns red
+          outside 0.40&ndash;1.80 g.</p>
+        <p>Yours reads about <code>1.08</code> at rest &mdash; a scale error in the sensor, not motion. Subtract that
+          offset before trusting small readings.</p>
+      </div>
+
+      <div class="card alt">
+        <h3>ALTITUDE</h3>
+        <p>Barometric, not GPS. The firmware averages 50 pressure samples at boot and calls that zero, then converts
+          every later reading into a height difference from it.</p>
+        <p>Shown <b>relative to your last TARE</b>, in centimetres. Press <b>TARE ALT</b> to re-zero at the board's
+          current height &mdash; the useful way to measure a small lift.</p>
+        <p><b>&sigma;</b> is the noise in the last second of samples: the real resolution. If &sigma; is 4 cm, a 2 cm
+          movement is not measurable. Raising DAMP lowers &sigma;.</p>
+        <p>Pressure drifts as the sensor warms, so altitude creeps for the first few minutes. Let the temperature
+          settle, then TARE.</p>
+      </div>
+
+      <div class="card">
+        <h3>ROTATION RATE</h3>
+        <p>The gyroscope, as <code>&radic;(gx&sup2; + gy&sup2; + gz&sup2;)</code> in degrees per second. Green under
+          150, amber to 240, red beyond.</p>
+        <p>This is rate of turn, not angle. Hold the board at a steep tilt and it reads zero, because it is not
+          moving.</p>
+        <p>At rest yours shows roughly 2&deg;/s of bias rather than a true zero. Harmless here, but it would
+          accumulate if you ever integrated it into an angle.</p>
+      </div>
+
+      <div class="card">
+        <h3>VERT RATE &amp; DAMPING</h3>
+        <p><b>VERT RATE</b> is how fast altitude is changing, fitted across the last second. Positive is upward.</p>
+        <p><b>DAMP</b> sets the smoothing on both the horizon and the altitude. <b>LIVE</b> reacts instantly and
+          jitters; <b>CALM</b> is steady but lags about half a second. <b>STEADY</b> is the middle.</p>
+        <p>Use CALM for measuring a height, LIVE for watching motion.</p>
+      </div>
+
+      <div class="card">
+        <h3>STREAM &amp; TILES</h3>
+        <p>The graph holds the last 420 samples &mdash; about 21 seconds at 20 Hz.</p>
+        <p><b>PRESSURE</b> in pascals is the raw barometer reading; altitude is derived from it.
+          <b>TEMP</b> is the BMP280's own die, so it reads above room temperature.</p>
+        <p><b>SAMPLES/s</b> should sit near 20. If it sags, the link is dropping lines.</p>
+      </div>
+    </div>
+
+    <button class="close" id="btnInfoClose">CLOSE</button>
+  </div>
+</div>
+
+<script>
+const C={cy:'#00eaff',mg:'#ff2d95',gn:'#3dff8e',am:'#ffb300',rd:'#ff3b3b'}, D2R=Math.PI/180;
+const $=id=>document.getElementById(id);
+let S={ax:0,ay:0,az:1,gx:0,gy:0,gz:0,p:0,t:0,alt:0,pkt:0,pitch:0,roll:0,
+       axF:0,ayF:0,azF:1,            // smoothed accel, used only for the horizon
+       altF:0, altSig:0, altVs:0, altZero:null};
+const H={alt:[],ax:[],ay:[],az:[]}, MAX=420;
+let rows=[], rec=false, sim=null, simT=0, pt=[];
+
+/* Barometric altitude is noisy at desk scale - a single BMP280 sample is worth
+   roughly +/-10 cm. Averaging a window of them cuts that by sqrt(n), which is
+   what makes centimetre readings meaningful at all. ALTW at 20 Hz ~= 1.2 s. */
+const ALTW = 24;
+let altBuf=[], altTs=[], damp=0.10;
+
+function ingest(v,line){
+  S.ax=v[1]; S.ay=v[2]; S.az=v[3];
+  S.gx=v[4]; S.gy=v[5]; S.gz=v[6];
+  S.p=v[7];  S.t=v[8];  S.alt=v[9];
+  S.pkt = v[10] ?? S.pkt+1;
+
+  const now=performance.now();
+  altBuf.push(S.alt); altTs.push(now);
+  if(altBuf.length>ALTW){ altBuf.shift(); altTs.shift() }
+
+  const n=altBuf.length;
+  const mean=altBuf.reduce((a,b)=>a+b,0)/n;
+  S.altF=mean;
+
+  /* sigma over the window is the honest resolution: movements smaller than
+     this are indistinguishable from sensor noise. */
+  let ss=0; for(const a of altBuf) ss+=(a-mean)*(a-mean);
+  S.altSig = n>1 ? Math.sqrt(ss/(n-1)) : 0;
+
+  if(S.altZero===null) S.altZero=mean;
+
+  /* vertical rate = least-squares slope over the window, m/s */
+  if(n>2){
+    const t0=altTs[0];
+    let st=0,sa=0,stt=0,sta=0;
+    for(let i=0;i<n;i++){
+      const t=(altTs[i]-t0)/1000;
+      st+=t; sa+=altBuf[i]; stt+=t*t; sta+=t*altBuf[i];
+    }
+    const den=n*stt-st*st;
+    S.altVs = den ? (n*sta-st*sa)/den : 0;
+  }
+
+  H.alt.push(S.altF-S.altZero);
+  H.ax.push(S.ax); H.ay.push(S.ay); H.az.push(S.az);
+  for(const k in H) if(H[k].length>MAX) H[k].shift();
+  pt.push(now); if(pt.length>40) pt.shift();
+  if(rec && line) rows.push(line);
+}
+
+function line2nums(l){
+  const p=l.split(',');
+  if(p.length<10) return null;
+  const n=p.map(parseFloat);
+  for(let i=0;i<10;i++) if(isNaN(n[i])) return null;
+  return n;
+}
+
+/* ---------- SERIAL ---------- */
+let port=null, buf='';
+
+$('btnCon').onclick=async()=>{
+  if(!('serial' in navigator)){
+    $('status').textContent='WEB SERIAL UNSUPPORTED - USE CHROME/EDGE';
+    return;
+  }
+  if(port){
+    try{ await port.close() }catch(e){}
+    port=null; $('btnCon').textContent='CONNECT'; $('status').textContent='DISCONNECTED';
+    return;
+  }
+  try{
+    port=await navigator.serial.requestPort();
+    await port.open({baudRate:+$('baud').value});
+    $('btnCon').textContent='DISCONNECT';
+    $('status').textContent='LINKED - RECEIVING';
+    const dec=new TextDecoder();
+    while(port && port.readable){
+      const r=port.readable.getReader();
+      try{
+        while(true){
+          const {value,done}=await r.read();
+          if(done) break;
+          buf+=dec.decode(value,{stream:true});
+          let i;
+          while((i=buf.indexOf('\n'))>=0){
+            const ln=buf.slice(0,i).trim();
+            buf=buf.slice(i+1);
+            if(ln && !ln.startsWith('timestamp')){
+              const n=line2nums(ln);
+              if(n) ingest(n,ln);
+            }
+          }
+        }
+      }catch(e){}
+      finally{ r.releaseLock() }
+    }
+    port=null; $('btnCon').textContent='CONNECT'; $('status').textContent='LINK LOST';
+  }catch(e){
+    $('status').textContent=e.message;
+  }
+};
+
+$('btnSim').onclick=()=>{
+  if(sim){ clearInterval(sim); sim=null; }
+  else{
+    sim=setInterval(()=>{
+      simT+=.05;
+      const a=4+Math.sin(simT*.4)*3;
+      ingest([simT*1000,
+              Math.sin(simT*2)*.6, Math.cos(simT*1.3)*.35, 1+Math.sin(simT*5)*.15,
+              Math.sin(simT*3)*90, Math.cos(simT*2.2)*70, Math.sin(simT*1.7)*45,
+              101300-a*12, 26+Math.sin(simT*.1), a, simT*20|0], null);
+    },50);
+  }
+  $('btnSim').style.background = sim ? 'rgba(0,234,255,.25)' : 'transparent';
+};
+
+$('btnRec').onclick=()=>{ rec=!rec; rows=[]; $('btnRec').classList.toggle('on',rec); };
+
+/* Re-zero at the board's current height, and shift the graph history by the
+   same amount so the trace stays continuous across the tare. */
+$('btnTare').onclick=()=>{
+  if(S.altZero===null) return;
+  const d=S.altF-S.altZero;
+  S.altZero=S.altF;
+  for(let i=0;i<H.alt.length;i++) H.alt[i]-=d;
+};
+
+$('damp').onchange=()=>{ damp=parseFloat($('damp').value) };
+$('btnInfo').onclick=()=>$('info').classList.add('on');
+$('btnInfoClose').onclick=()=>$('info').classList.remove('on');
+addEventListener('keydown',e=>{ if(e.key==='Escape') $('info').classList.remove('on') });
+
+$('btnSave').onclick=()=>{
+  if(!rows.length) return;
+  const b=new Blob(['timestamp_ms,ax,ay,az,gx,gy,gz,pressure,temp,altitude,packet\n'+rows.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);
+  a.download='flight_'+Date.now()+'.csv';
+  a.click();
+};
+
+/* ---------- RENDER ---------- */
+const stars=Array.from({length:240},()=>({x:Math.random()*2-1,y:Math.random()*2-1,z:Math.random()}));
+
+function fit(c){
+  const d=devicePixelRatio||1, w=c.clientWidth, h=c.clientHeight;
+  if(c.width!==(w*d|0)){ c.width=w*d; c.height=h*d }
+  const x=c.getContext('2d');
+  x.setTransform(d,0,0,d,0,0);
+  return [x,w,h];
+}
+
+function frame(){
+  const mag=Math.hypot(S.ax,S.ay,S.az);
+
+  /* starfield */
+  {
+    const [x,w,h]=fit($('bgC'));
+    x.clearRect(0,0,w,h);
+    const sp=.004+mag*.006;
+    for(const s of stars){
+      s.z-=sp;
+      if(s.z<.05){ s.z=1; s.x=Math.random()*2-1; s.y=Math.random()*2-1 }
+      const px=w/2+s.x/s.z*w*.5, py=h/2+s.y/s.z*h*.5, q=s.z+.08,
+            qx=w/2+s.x/q*w*.5,   qy=h/2+s.y/q*h*.5;
+      x.strokeStyle=`rgba(0,234,255,${(1-s.z)*.5})`;
+      x.lineWidth=(1-s.z)*1.8;
+      x.beginPath(); x.moveTo(qx,qy); x.lineTo(px,py); x.stroke();
+    }
+  }
+
+  /* attitude indicator */
+  {
+    const [x,w,h]=fit($('adiC'));
+    x.clearRect(0,0,w,h);
+    const R=Math.min(w,h)*.40;
+    /* Smooth the acceleration first, then derive the angle from it, then damp
+       the angle as well. Filtering the input is what actually kills the jitter;
+       damping only the output just adds lag. */
+    S.axF+=(S.ax-S.axF)*damp; S.ayF+=(S.ay-S.ayF)*damp; S.azF+=(S.az-S.azF)*damp;
+    const m=Math.hypot(S.axF,S.ayF,S.azF)||1,
+          pT=Math.asin(Math.max(-1,Math.min(1,-S.axF/m)))/D2R,
+          rT=Math.atan2(S.ayF,S.azF)/D2R;
+    S.pitch+=(pT-S.pitch)*damp;
+    S.roll +=(rT-S.roll)*damp;
+    x.save(); x.translate(w/2,h/2);
+    x.save(); x.beginPath(); x.arc(0,0,R,0,7); x.clip(); x.rotate(-S.roll*D2R);
+    const ppd=R*2/90;   /* 90 deg across the ball: small tilts move it less */
+    x.translate(0,S.pitch*ppd);
+    let g=x.createLinearGradient(0,-R*3,0,0);
+    g.addColorStop(0,'#02131f'); g.addColorStop(1,'#00c4e0');
+    x.fillStyle=g; x.fillRect(-R*4,-R*5,R*8,R*5);
+    g=x.createLinearGradient(0,0,0,R*3);
+    g.addColorStop(0,'#d07018'); g.addColorStop(1,'#1c0c02');
+    x.fillStyle=g; x.fillRect(-R*4,0,R*8,R*5);
+    x.strokeStyle='#eaffff'; x.lineWidth=2; x.shadowColor=C.cy; x.shadowBlur=16;
+    x.beginPath(); x.moveTo(-R*4,0); x.lineTo(R*4,0); x.stroke(); x.shadowBlur=0;
+    x.strokeStyle='rgba(255,255,255,.7)'; x.fillStyle='rgba(255,255,255,.75)'; x.font='10px Consolas';
+    for(let d=-40;d<=40;d+=10){
+      if(!d) continue;
+      const y=-d*ppd, lw=d%20?R*.16:R*.3;
+      x.beginPath(); x.moveTo(-lw,y); x.lineTo(lw,y); x.stroke();
+      x.fillText(d,lw+5,y+3);
+    }
+    x.restore();
+    x.strokeStyle='rgba(0,234,255,.85)'; x.lineWidth=2; x.shadowColor=C.cy; x.shadowBlur=12;
+    x.beginPath(); x.arc(0,0,R,0,7); x.stroke();
+    for(let a=0;a<360;a+=10){
+      const r=a*D2R;
+      x.beginPath();
+      x.moveTo(Math.sin(r)*R, -Math.cos(r)*R);
+      x.lineTo(Math.sin(r)*(R-7), -Math.cos(r)*(R-7));
+      x.stroke();
+    }
+    x.shadowBlur=0;
+    x.save(); x.rotate(-S.roll*D2R); x.fillStyle=C.am;
+    x.beginPath(); x.moveTo(0,-R+4); x.lineTo(-7,-R-8); x.lineTo(7,-R-8); x.fill(); x.restore();
+    x.strokeStyle=C.mg; x.lineWidth=3; x.shadowColor=C.mg; x.shadowBlur=14;
+    x.beginPath(); x.moveTo(-R*.5,0); x.lineTo(-R*.16,0); x.moveTo(R*.16,0); x.lineTo(R*.5,0); x.stroke();
+    x.beginPath(); x.arc(0,0,4,0,7); x.fillStyle=C.mg; x.fill();
+    x.restore();
+  }
+
+  /* gyro gauge */
+  {
+    const [x,w,h]=fit($('gyrC'));
+    x.clearRect(0,0,w,h);
+    const R=Math.min(w,h)*.34, cx=w/2, cy=h/2+8,
+          v=Math.min(Math.hypot(S.gx,S.gy,S.gz),300), f=v/300,
+          a0=Math.PI*.75, a1=a0+f*Math.PI*1.5;
+    x.lineWidth=12; x.lineCap='round';
+    x.strokeStyle='rgba(255,255,255,.10)';
+    x.beginPath(); x.arc(cx,cy,R,a0,a0+Math.PI*1.5); x.stroke();
+    x.strokeStyle = f<.5?C.gn : f<.8?C.am : C.rd;
+    x.shadowColor=x.strokeStyle; x.shadowBlur=18;
+    x.beginPath(); x.arc(cx,cy,R,a0,a1); x.stroke(); x.shadowBlur=0;
+    x.save(); x.translate(cx,cy); x.rotate(a1);
+    x.strokeStyle='#fff'; x.lineWidth=3; x.shadowColor='#fff'; x.shadowBlur=10;
+    x.beginPath(); x.moveTo(R-22,0); x.lineTo(R-4,0); x.stroke(); x.restore(); x.shadowBlur=0;
+    x.fillStyle='#dff6ff'; x.font='700 34px Consolas'; x.textAlign='center';
+    x.fillText(v.toFixed(0),cx,cy+6);
+    x.font='10px Consolas'; x.fillStyle='#6fa0b4'; x.fillText('DEG / SEC',cx,cy+24);
+    x.textAlign='left';
+  }
+
+  /* altitude tape */
+  {
+    const [x,w,h]=fit($('tapeC'));
+    x.clearRect(0,0,w,h);
+    /* The old tape was fixed at 20 m, so a 20 cm lift moved it one pixel.
+       Scale it to whatever the board is actually doing instead. */
+    const rel=(S.altZero===null)?0:(S.altF-S.altZero);
+    let lo=rel,hi=rel;
+    for(const v of H.alt){ if(v<lo)lo=v; if(v>hi)hi=v }
+    const span=Math.max((hi-lo)*1.7, 0.30);           // metres, top to bottom
+    const steps=[0.02,0.05,0.1,0.25,0.5,1,2,5,10,20];
+    const step=steps.find(s=>span/s<=12) ?? 50;
+    const ppm=h/span, inCm=span<3;
+
+    x.strokeStyle='rgba(61,255,142,.5)'; x.fillStyle='rgba(61,255,142,.8)'; x.font='9px Consolas';
+    const k0=Math.ceil((rel-span/2)/step), k1=Math.floor((rel+span/2)/step);
+    for(let k=k0;k<=k1;k++){
+      const mv=k*step, y=h/2-(mv-rel)*ppm;
+      if(y<0||y>h) continue;
+      const maj=(k%5===0);
+      x.beginPath(); x.moveTo(w-(maj?16:9),y); x.lineTo(w-2,y); x.stroke();
+      if(maj) x.fillText(inCm?(mv*100).toFixed(0):mv.toFixed(step<1?1:0), 2, y+3);
+    }
+    x.fillStyle='rgba(61,255,142,.45)'; x.font='8px Consolas';
+    x.fillText(inCm?'cm':'m', 2, 10);
+    x.fillStyle=C.gn; x.shadowColor=C.gn; x.shadowBlur=12;
+    x.beginPath(); x.moveTo(w,h/2); x.lineTo(w-12,h/2-6); x.lineTo(w-12,h/2+6); x.fill(); x.shadowBlur=0;
+  }
+
+  /* stream graph */
+  {
+    const [x,w,h]=fit($('grC'));
+    x.clearRect(0,0,w,h);
+    const pad=26;
+    const plot=(arr,col,lo,hi,fill)=>{
+      if(arr.length<2) return;
+      x.strokeStyle=col; x.lineWidth=fill?2.4:1.4; x.shadowColor=col; x.shadowBlur=10;
+      x.beginPath();
+      arr.forEach((v,i)=>{
+        const X=pad+(w-pad-10)*i/(MAX-1),
+              Y=h-14-(h-30)*((Math.max(lo,Math.min(hi,v))-lo)/(hi-lo));
+        i?x.lineTo(X,Y):x.moveTo(X,Y);
+      });
+      x.stroke();
+      if(fill){
+        x.lineTo(w-10,h-14); x.lineTo(pad,h-14); x.closePath();
+        x.shadowBlur=0; x.fillStyle='rgba(61,255,142,.10)'; x.fill();
+      }
+      x.shadowBlur=0;
+    };
+    let mn=Math.min(...H.alt,0), mx=Math.max(...H.alt,0);
+    if(mx-mn<0.10){ mx+=.05; mn-=.05 }               /* floor of 10 cm, not 2 m */
+    plot(H.alt,C.gn,mn,mx,true);
+    plot(H.ax,C.cy,-3,3);
+    plot(H.ay,C.mg,-3,3);
+    plot(H.az,C.am,-3,3);
+    /* legend lives top-right: the panel caption occupies the top-left corner */
+    x.font='10px Consolas';
+    const lx=w-300;
+    [['ALT',C.gn],['AX',C.cy],['AY',C.mg],['AZ',C.am]].forEach((l,i)=>{
+      x.fillStyle=l[1]; x.fillText(l[0],lx+i*40,15);
+    });
+    x.fillStyle='rgba(61,255,142,.55)';
+    x.fillText('span '+((mx-mn)*100).toFixed(0)+' cm', lx+4*40, 15);
+  }
+
+  /* DOM */
+  $('gVal').textContent=mag.toFixed(2);
+  $('gBox').classList.toggle('warn', mag>1.8||mag<.4);
+
+  const rel=(S.altZero===null)?0:(S.altF-S.altZero);
+  const useCm=Math.abs(rel)<9.995;
+  $('altVal').textContent = useCm ? (rel*100).toFixed(1) : rel.toFixed(2);
+  $('altUnit').innerHTML  = useCm ? 'ALTITUDE cm &middot; REL' : 'ALTITUDE m &middot; REL';
+  $('altSub').innerHTML = '&sigma; '+(S.altSig*100).toFixed(1)+' cm &nbsp;&middot;&nbsp; '
+                        + (S.altVs*100>=0?'+':'') + (S.altVs*100).toFixed(1)+' cm/s';
+
+  $('tPitch').textContent=S.pitch.toFixed(1);
+  $('tRoll').textContent =S.roll.toFixed(1);
+  $('tVs').textContent   =(S.altVs*100).toFixed(1);
+  $('tPress').textContent=S.p?S.p.toFixed(0):'—';
+  $('tTemp').textContent=S.t?S.t.toFixed(1):'—';
+  $('tRate').textContent = pt.length>1 ? ((pt.length-1)/((pt.at(-1)-pt[0])/1000)).toFixed(0) : '—';
+
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
