@@ -24,7 +24,7 @@ if errorlevel 1 (
 
 if "%~1"=="" (
   echo.
-  echo Compile OK. To upload:  build.bat COM5
+  echo Compile OK. To upload:  build.bat COM3
   exit /b 0
 )
 
